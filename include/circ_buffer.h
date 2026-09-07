@@ -2,6 +2,7 @@
 #define CIRC_BUFF_H
 
 #include <stdbool.h>
+#include <stdlib.h>
 
 #define CIRC_BUFF_CAPACITY 1024  /* Fixed size for the bounded circular buffer */
 #define MAX_JSON_LEN 2048        /* Maximum buffer size to hold an individual raw JSON frame */

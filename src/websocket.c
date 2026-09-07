@@ -413,10 +413,13 @@ ws_client_ctx_t *ws_client_create(
      */
     info.port = CONTEXT_PORT_NO_LISTEN;
 
+    info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+
     /*
      * Protocols used by the client.
      */
     info.protocols = protocols;
+    
 
     /*
      * No specific user/group.

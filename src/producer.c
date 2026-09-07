@@ -13,7 +13,7 @@ static void on_websocket_data(const char *payload, size_t len, void *user_data) 
     }
 
     circ_buff_push(prod->buffer, payload);
-
+    //printf("Producer pushed data to buffer: %.*s\n", (int)len, payload);
     // Wake up the consumer thread
     pthread_cond_signal(prod->not_empty);
     pthread_mutex_unlock(prod->circ_buff_mutex);
