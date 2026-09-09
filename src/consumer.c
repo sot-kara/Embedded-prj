@@ -36,7 +36,6 @@ void *consumer_thread_func(void *arg) {
         // Signal that the buffer is not full
         pthread_cond_signal(cons->not_full);
         pthread_mutex_unlock(cons->circ_buff_mutex);
-
         // --- PROCESS DATA ---
         message_kind_t kind = parse_msg_kind(data);
         printf("Consumer received data from buffer: %.*s\n", (int)strlen(data), data);

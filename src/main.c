@@ -68,8 +68,5 @@ int main(){
     pthread_cond_destroy(&not_full);
     pthread_cond_destroy(&not_empty);
 
-    printf("Commit count: %d\n", commit_cnt);
-    printf("Identity count: %d\n", identity_cnt);
-    printf("Account count: %d\n", account_cnt);
-    printf("Info count: %d\n", info_cnt);
+    printf("Experiment finished...\n");
 }
