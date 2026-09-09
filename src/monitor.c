@@ -31,7 +31,7 @@ static void get_cpu_times(unsigned long long *idle, unsigned long long *total) {
 
 void monitor_init(monitor_t *mon, circ_buff_t *buffer, pthread_mutex_t *counters_mutex,
                   unsigned int *commit_count, unsigned int *identity_count,
-                  unsigned int *account_count, unsigned int *info_count) {
+                  unsigned int *account_count, unsigned int *info_count, volatile int *is_connected) {
     mon->buffer = buffer;
     mon->counters_mutex = counters_mutex;
     mon->commit_count = commit_count;
@@ -39,6 +39,7 @@ void monitor_init(monitor_t *mon, circ_buff_t *buffer, pthread_mutex_t *counters
     mon->account_count = account_count;
     mon->info_count = info_count;
     mon->running = 1;
+    mon->is_connected = is_connected;
 }
 
 void* monitor_thread_func(void *arg) {
@@ -111,8 +112,16 @@ void* monitor_thread_func(void *arg) {
         
         pthread_mutex_unlock(mon->counters_mutex);
 
+        // Override counters to -1 if the connection is currently dead
+        if (*(mon->is_connected) == 0) {
+            commits = -1;
+            identities = -1;
+            accounts = -1;
+            infos = -1;
+        }
+
         // 4. Append metrics to log file
-        fprintf(log_file, "%ld,%ld,%u,%u,%u,%u,%.2f,%.2f\n",
+        fprintf(log_file, "%ld,%ld,%d,%d,%d,%d,%.2f,%.2f\n",
                 (long)ts.tv_sec,
                 (long)ts.tv_nsec,
                 commits,
@@ -121,7 +130,6 @@ void* monitor_thread_func(void *arg) {
                 infos,
                 buffer_pct,
                 cpu_pct);
-        
         fflush(log_file); // Ensure data is written to disk immediately
     }
 

@@ -20,12 +20,13 @@ static void on_websocket_data(const char *payload, size_t len, void *user_data) 
 }
 
 void producer_init(producer_t *prod, circ_buff_t *buffer, pthread_mutex_t *circ_buff_mutex, 
-                   pthread_cond_t *not_full, pthread_cond_t *not_empty) {
+                   pthread_cond_t *not_full, pthread_cond_t *not_empty, volatile int *is_connected) {
     prod->buffer = buffer;
     prod->circ_buff_mutex = circ_buff_mutex;
     prod->not_full = not_full;
     prod->not_empty = not_empty;
     prod->running = 1;
+    prod->is_connected = is_connected;
 }
 
 void* producer_thread_func(void *arg) {
@@ -36,7 +37,8 @@ void* producer_thread_func(void *arg) {
         443,
         "/subscribe?wantedCollections=app.bsky.feed.post",
         on_websocket_data,
-        prod
+        prod,
+        prod->is_connected
     );
 
     if (!ws_client) {

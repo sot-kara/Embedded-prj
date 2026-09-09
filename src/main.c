@@ -17,6 +17,8 @@ int commit_cnt, identity_cnt, account_cnt, info_cnt = 0;
     .size = 0
 };
 
+volatile int is_connected = 0; // Shared connection status flag
+
 int main(){
     pthread_mutex_t circ_buffer_mutex;
     pthread_cond_t not_full;
@@ -34,13 +36,13 @@ int main(){
 
     // create the producer object and initialize it
     producer_t producer;
-    producer_init(&producer, &buffer, &circ_buffer_mutex, &not_full, &not_empty);
+    producer_init(&producer, &buffer, &circ_buffer_mutex, &not_full, &not_empty, &is_connected);
 
     consumer_t consumer;
     consumer_init(&consumer, &buffer, &circ_buffer_mutex, &counter_mutex, &not_full, &not_empty, &commit_cnt, &identity_cnt, &account_cnt, &info_cnt);
 
     monitor_t monitor;
-    monitor_init(&monitor, &buffer, &counter_mutex, (unsigned int*)&commit_cnt, (unsigned int*)&identity_cnt, (unsigned int*)&account_cnt, (unsigned int*)&info_cnt);
+    monitor_init(&monitor, &buffer, &counter_mutex, (unsigned int*)&commit_cnt, (unsigned int*)&identity_cnt, (unsigned int*)&account_cnt, (unsigned int*)&info_cnt, &is_connected);
 
     // create the producer thread and pass the producer object to it as args
     pthread_t producer_thread;
