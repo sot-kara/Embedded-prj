@@ -1,7 +1,6 @@
+/* src/websocket.c */
 #include "websocket.h"
-
 #include <libwebsockets.h>
-
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -23,6 +22,9 @@ struct ws_client_ctx
 
     ws_data_callback_t callback;
     void *user_data;
+    
+    /* Pointer to shared connection status flag */
+    volatile int *is_connected; 
 
     /*
      * Connection information.
@@ -42,7 +44,6 @@ struct ws_client_ctx
 
     bool connected;
 };
-
 
 static int ws_client_connect(ws_client_ctx_t *client);
 
@@ -82,6 +83,11 @@ static int ws_client_callback(
 
         client->connected = true;
         client->wsi = wsi;
+        
+        /* Update the shared connection flag to valid (1) */
+        if (client->is_connected) {
+            *(client->is_connected) = 1;
+        }
 
         /*
          * The connection worked, so reset the reconnect
@@ -133,6 +139,11 @@ static int ws_client_callback(
          */
         client->wsi = NULL;
         client->connected = false;
+        
+        /* Update the shared connection flag to invalid (0) */
+        if (client->is_connected) {
+            *(client->is_connected) = 0;
+        }
 
         /*
          * Schedule a reconnect.
@@ -171,6 +182,11 @@ static int ws_client_callback(
 
         client->wsi = NULL;
         client->connected = false;
+
+        /* Update the shared connection flag to invalid (0) */
+        if (client->is_connected) {
+            *(client->is_connected) = 0;
+        }
 
         /*
          * Schedule a reconnect.
@@ -335,7 +351,8 @@ ws_client_ctx_t *ws_client_create(
     int port,
     const char *path,
     ws_data_callback_t callback,
-    void *user_data)
+    void *user_data,
+    volatile int *is_connected) /* Added the new parameter here */
 {
     /*
      * Validate arguments.
@@ -363,6 +380,9 @@ ws_client_ctx_t *ws_client_create(
      */
     client->callback = callback;
     client->user_data = user_data;
+    
+    /* Store the shared connection flag */
+    client->is_connected = is_connected;
 
     /*
      * Store connection parameters.
@@ -398,6 +418,11 @@ ws_client_ctx_t *ws_client_create(
     client->next_reconnect_time = 0;
     client->connected = false;
     client->wsi = NULL;
+
+    /* Initialize the flag to 0 before attempting connection */
+    if (client->is_connected) {
+        *(client->is_connected) = 0;
+    }
 
     /*
      * ---------------------------------------------------------

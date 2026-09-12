@@ -36,12 +36,12 @@ typedef struct ws_client_ctx ws_client_ctx_t;
  *     NULL on failure
  */
 ws_client_ctx_t* ws_client_create(
-    const char *address,
-    int port,
-    const char *path,
-    ws_data_callback_t callback,
-    void *user_data
-);
+    const char *address, 
+    int port, 
+    const char *path, 
+    ws_data_callback_t callback, 
+    void *user_data, 
+    volatile int *is_connected);
 
 /*
  * Run the WebSocket event loop.
