@@ -3,14 +3,16 @@
 #include "producer.h"
 #include "consumer.h"
 #include "monitor.h"
+#include "schedule.h"
 #include "circ_buffer.h"
 #include <pthread.h>
 #include <stdatomic.h>
 #include <unistd.h> 
 
-#define SLEEP_SECONDS 10 // Sleep duration in seconds
+#define SLEEP_SECONDS 5 // Sleep duration in seconds
+#define SCHEDULE_PATH "/home/sot/bluesky-telemetry/schedule.txt" // Path to the schedule file
 
-int commit_cnt, identity_cnt, account_cnt, info_cnt = 0;
+int commit_cnt =0, identity_cnt =0, account_cnt =0, info_cnt = 0;
 
  circ_buff_t buffer = {
     .data = {{0}},
@@ -22,7 +24,15 @@ int commit_cnt, identity_cnt, account_cnt, info_cnt = 0;
 volatile int is_connected = 0; // Shared connection status flag
 
 int main(){
-    struct timespec end_time; // dont start your crying its the end of the times
+    time_t start_time, end_time; // dont start your crying its the end of the times
+
+    if (!read_schedule(SCHEDULE_PATH, &start_time, &end_time)) {
+        fprintf(stderr, "Could not read schedule file: %s, continuing with default values\n", SCHEDULE_PATH);
+        start_time = time(NULL);
+        end_time = start_time + SLEEP_SECONDS; // Default to SLEEP_SECONDS seconds from now
+    }
+
+
 
     pthread_mutex_t circ_buffer_mutex;
     pthread_cond_t not_full;
@@ -47,12 +57,14 @@ int main(){
 
     monitor_t monitor;
     monitor_init(&monitor, &buffer, &counter_mutex, (unsigned int*)&commit_cnt, (unsigned int*)&identity_cnt, (unsigned int*)&account_cnt, (unsigned int*)&info_cnt, &is_connected);
-
-    // get current time after initialization and befire starting the threads
-   clock_gettime(CLOCK_REALTIME, &end_time);
-
-    // Add exactly 24 hours (86400 seconds) to the current time
-    end_time.tv_sec += SLEEP_SECONDS;
+    
+    // wait till the exact absolute time for the start of the experiment is reached
+    struct timespec ts_start;
+    ts_start.tv_sec = start_time;
+    ts_start.tv_nsec = 0;
+    while (clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &ts_start, NULL) != 0) {
+        // Interrupted by signal, loop back to sleep
+    }
    
     // create the producer thread and pass the producer object to it as args
     pthread_t producer_thread;
@@ -64,12 +76,12 @@ int main(){
     pthread_t monitor_thread;
     pthread_create(&monitor_thread, NULL, monitor_thread_func, &monitor);
 
-    // Sleep until the exact absolute time for 24 hours is reached
-    // If interrupted by a system signal, the while loop forces it right back to sleep
-    while (clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &end_time, NULL) != 0) {
-        // Optionally check an external kill switch here if needed
+    struct timespec ts_end;
+    ts_end.tv_sec = end_time;
+    ts_end.tv_nsec = 0;
+    while (clock_nanosleep(CLOCK_REALTIME, TIMER_ABSTIME, &ts_end, NULL) != 0) {
+        // Interrupted by signal, loop back to sleep
     }
-
     // Signal the threads to stop running
     printf("Stopping threads...\n");
     atomic_store(&producer.running, 0);
