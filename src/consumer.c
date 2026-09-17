@@ -4,7 +4,7 @@
 #include "json_handler.h"
 
 void consumer_init(consumer_t *cons, circ_buff_t *buffer, pthread_mutex_t *circ_buff_mutex, pthread_mutex_t *counter_mutex,
-                   pthread_cond_t *not_full, pthread_cond_t *not_empty, int *commit_count, int *identity_count, int *account_count, int *info_count) {
+                   pthread_cond_t *not_full, pthread_cond_t *not_empty, int *commit_count, int *identity_count, int *account_count, int *info_count, int *unknown_count) {
     cons->buffer = buffer;
     cons->circ_buff_mutex = circ_buff_mutex;
     cons->counter_mutex = counter_mutex;
@@ -14,6 +14,7 @@ void consumer_init(consumer_t *cons, circ_buff_t *buffer, pthread_mutex_t *circ_
     cons->identity_count = identity_count;
     cons->account_count = account_count;
     cons->info_count = info_count;
+    cons->unknown_count = unknown_count;
     cons->running = 1;
 }
 
@@ -57,6 +58,10 @@ void *consumer_thread_func(void *arg) {
         case MSG_KIND_INFO:
             // Handle info message
             (*cons->info_count)++;
+            break;
+        case MSG_KIND_UNKNOWN:
+            // Handle unknown message
+            (*cons->unknown_count)++;
             break;
         default:
             break;

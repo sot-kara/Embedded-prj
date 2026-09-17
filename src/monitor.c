@@ -29,14 +29,16 @@ static void get_cpu_times(unsigned long long *idle, unsigned long long *total) {
     fclose(fp);
 }
 
-void monitor_init(monitor_t *mon, circ_buff_t *buffer, pthread_mutex_t *counters_mutex,
-                  unsigned int *commit_count, unsigned int *identity_count,
-                  unsigned int *account_count, unsigned int *info_count, volatile int *is_connected) {
+void monitor_init(monitor_t *mon, circ_buff_t *buffer, pthread_mutex_t *counters_mutex, int *received_count,
+                   int *commit_count, int *identity_count,
+                  int *account_count, int *unknown_count, int *info_count, volatile int *is_connected) {
     mon->buffer = buffer;
     mon->counters_mutex = counters_mutex;
+    mon->received_count = received_count;
     mon->commit_count = commit_count;
     mon->identity_count = identity_count;
     mon->account_count = account_count;
+    mon->unknown_count = unknown_count;
     mon->info_count = info_count;
     mon->running = 1;
     mon->is_connected = is_connected;
@@ -55,7 +57,7 @@ void* monitor_thread_func(void *arg) {
     // Write CSV Header if the file is empty (optional but good practice)
     fseek(log_file, 0, SEEK_END);
     if (ftell(log_file) == 0) {
-        fprintf(log_file, "Seconds,Nanoseconds,Commit_Count,Identity_Count,Account_Count,Info_Count,Buffer_Occupancy_Pct,CPU_Pct\n");
+        fprintf(log_file, "Seconds,Nanoseconds,Received_Count,Commit_Count,Identity_Count,Account_Count,Info_Count,Unknown_Count,Buffer_Occupancy_Pct,CPU_Pct\n");
         fflush(log_file);
     }
 
@@ -98,36 +100,45 @@ void* monitor_thread_func(void *arg) {
         // 3. Lock mutex, copy data, reset counters, and calculate buffer occupancy
         pthread_mutex_lock(mon->counters_mutex);
         
-        unsigned int commits = *(mon->commit_count);
-        unsigned int identities = *(mon->identity_count);
-        unsigned int accounts = *(mon->account_count);
-        unsigned int infos = *(mon->info_count);
+        int received = *(mon->received_count);
+        int commits = *(mon->commit_count);
+        int identities = *(mon->identity_count);
+        int accounts = *(mon->account_count);
+        int infos = *(mon->info_count);
+        int unknowns = *(mon->unknown_count);
         
+        *(mon->received_count) = 0;
         *(mon->commit_count) = 0;
         *(mon->identity_count) = 0;
         *(mon->account_count) = 0;
         *(mon->info_count) = 0;
+        *(mon->unknown_count) = 0;
         
         double buffer_pct = circ_buff_get_occupancy_pct(mon->buffer);
         
         pthread_mutex_unlock(mon->counters_mutex);
 
+
         // Override counters to -1 if the connection is currently dead
         if (*(mon->is_connected) == 0) {
+            received = -1;
             commits = -1;
             identities = -1;
             accounts = -1;
             infos = -1;
+            unknowns = -1;
         }
 
         // 4. Append metrics to log file
-        fprintf(log_file, "%ld,%ld,%d,%d,%d,%d,%.2f,%.2f\n",
+        fprintf(log_file, "%ld,%ld,%d,%d,%d,%d,%d,%d,%.2f,%.2f\n",
                 (long)ts.tv_sec,
                 (long)ts.tv_nsec,
+                received,
                 commits,
                 identities,
                 accounts,
                 infos,
+                unknowns,
                 buffer_pct,
                 cpu_pct);
         fflush(log_file); // Ensure data is written to disk immediately

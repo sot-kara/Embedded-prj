@@ -327,7 +327,7 @@ static int ws_client_connect(ws_client_ctx_t *client)
         /*
          * Increase exponential backoff.
          */
-        client->reconnect_delay *= 2;
+        //client->reconnect_delay *= 2;
 
         if (client->reconnect_delay >
             WS_RECONNECT_MAX_DELAY)
@@ -352,7 +352,7 @@ ws_client_ctx_t *ws_client_create(
     const char *path,
     ws_data_callback_t callback,
     void *user_data,
-    volatile int *is_connected) /* Added the new parameter here */
+    volatile int *is_connected) 
 {
     /*
      * Validate arguments.

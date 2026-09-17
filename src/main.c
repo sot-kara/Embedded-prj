@@ -12,7 +12,7 @@
 #define SLEEP_SECONDS 5 // Sleep duration in seconds
 #define SCHEDULE_PATH "/home/sot/bluesky-telemetry/schedule.txt" // Path to the schedule file
 
-int commit_cnt =0, identity_cnt =0, account_cnt =0, info_cnt = 0;
+int received_cnt = 0, commit_cnt =0, identity_cnt =0, account_cnt =0, info_cnt = 0, unknown_cnt = 0; // Counters for different message types
 
  circ_buff_t buffer = {
     .data = {{0}},
@@ -50,13 +50,13 @@ int main(){
 
     // create the producer object and initialize it
     producer_t producer;
-    producer_init(&producer, &buffer, &circ_buffer_mutex, &not_full, &not_empty, &is_connected);
+    producer_init(&producer, &buffer, &circ_buffer_mutex, &not_full, &not_empty,&counter_mutex,&received_cnt, &is_connected);
 
     consumer_t consumer;
-    consumer_init(&consumer, &buffer, &circ_buffer_mutex, &counter_mutex, &not_full, &not_empty, &commit_cnt, &identity_cnt, &account_cnt, &info_cnt);
+    consumer_init(&consumer, &buffer, &circ_buffer_mutex, &counter_mutex, &not_full, &not_empty, &commit_cnt, &identity_cnt, &account_cnt, &info_cnt, &unknown_cnt);
 
     monitor_t monitor;
-    monitor_init(&monitor, &buffer, &counter_mutex, (unsigned int*)&commit_cnt, (unsigned int*)&identity_cnt, (unsigned int*)&account_cnt, (unsigned int*)&info_cnt, &is_connected);
+    monitor_init(&monitor, &buffer, &counter_mutex, &received_cnt, &commit_cnt, &identity_cnt, &account_cnt, &info_cnt, &unknown_cnt, &is_connected);
     
     // wait till the exact absolute time for the start of the experiment is reached
     struct timespec ts_start;

@@ -15,11 +15,11 @@ typedef struct {
     int *identity_count;
     int *account_count;
     int *info_count;
+    int *unknown_count;
 } consumer_t;
 
 void consumer_init(consumer_t *cons, circ_buff_t *buffer, pthread_mutex_t *circ_buff_mutex, pthread_mutex_t * counter_mutex, 
-                   pthread_cond_t *not_full, pthread_cond_t *not_empty, int *commit_count, int *identity_count, int *account_count, int *info_count);
-
+                   pthread_cond_t *not_full, pthread_cond_t *not_empty, int *commit_count, int *identity_count, int *account_count, int *info_count, int *unknown_count);
 void* consumer_thread_func(void* args);
 
 #endif // CONSUMER_H
