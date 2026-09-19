@@ -43,6 +43,10 @@ struct ws_client_ctx
     time_t next_reconnect_time;
 
     bool connected;
+
+    // Buffer for handling fragmented data
+    char *rx_buffer;
+    size_t rx_buffer_len;
 };
 
 static int ws_client_connect(ws_client_ctx_t *client);
@@ -108,19 +112,52 @@ static int ws_client_callback(
      * Data received
      * ---------------------------------------------------------
      */
+/*
+     * ---------------------------------------------------------
+     * Data received
+     * ---------------------------------------------------------
+     */
     case LWS_CALLBACK_CLIENT_RECEIVE:
-
-        if (in &&
-            len > 0 &&
-            client->callback)
+        if (in && len > 0 && client->callback)
         {
+            /* 1. Expand the buffer to fit the new fragment */
+            char *new_buf = realloc(client->rx_buffer, client->rx_buffer_len + len + 1);
+            if (!new_buf)
+            {
+                lwsl_err("OOM allocating receive buffer\n");
+                return -1; // Returning non-zero drops the connection
+            }
 
-            client->callback(
-                (const char *)in,
-                len,
-                client->user_data);
+            client->rx_buffer = new_buf;
+
+            /* 2. Copy the new data to the end of our buffer */
+            memcpy(client->rx_buffer + client->rx_buffer_len, in, len);
+            client->rx_buffer_len += len;
+            
+            /* Null-terminate it just to be safe for string parsing */
+            client->rx_buffer[client->rx_buffer_len] = '\0'; 
+
+            /* 3. Check if this is the end of the full message */
+            size_t remaining = lws_remaining_packet_payload(wsi);
+            int is_final = lws_is_final_fragment(wsi);
+
+            if (is_final && remaining == 0)
+            {
+                /* We have the complete JSON message. Dispatch it. */
+                if (client->callback)
+                {
+                    client->callback(
+                        (const char *)client->rx_buffer,
+                        client->rx_buffer_len,
+                        client->user_data);
+                }
+
+                /* 4. Reset the buffer for the next incoming message */
+                free(client->rx_buffer);
+                client->rx_buffer = NULL;
+                client->rx_buffer_len = 0;
+            }
         }
-
         break;
 
     /*
@@ -143,6 +180,13 @@ static int ws_client_callback(
         /* Update the shared connection flag to invalid (0) */
         if (client->is_connected) {
             *(client->is_connected) = 0;
+        }
+
+        /* Free any partially assembled message */
+        if (client->rx_buffer) {
+            free(client->rx_buffer);
+            client->rx_buffer = NULL;
+            client->rx_buffer_len = 0;
         }
 
         /*
@@ -186,6 +230,13 @@ static int ws_client_callback(
         /* Update the shared connection flag to invalid (0) */
         if (client->is_connected) {
             *(client->is_connected) = 0;
+        }
+
+        /* Free any partially assembled message */
+        if (client->rx_buffer) {
+            free(client->rx_buffer);
+            client->rx_buffer = NULL;
+            client->rx_buffer_len = 0;
         }
 
         /*
@@ -234,7 +285,7 @@ static struct lws_protocols protocols[] = {
         .name = "jetstream-protocol",
         .callback = ws_client_callback,
         .per_session_data_size = 0,
-        .rx_buffer_size = 0,
+        .rx_buffer_size = 65536,
     },
 
     LWS_PROTOCOL_LIST_TERM};
@@ -578,6 +629,8 @@ void ws_client_destroy(ws_client_ctx_t *ctx)
     /*
      * Free our copies of the connection information.
      */
+    if (ctx->rx_buffer) free(ctx->rx_buffer);
+    
     free(ctx->address);
     free(ctx->path);
 
