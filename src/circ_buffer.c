@@ -1,6 +1,6 @@
 #include "circ_buffer.h"
 #include <string.h>
-#include <math.h>
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
 
 void circ_buff_init(circ_buff_t *cb) {
     cb->head = 0;
@@ -22,8 +22,8 @@ bool circ_buff_push(circ_buff_t *cb, const char *item, size_t len) {
     }
 
     // Copy string into the tail position
-    strncpy(cb->data[cb->tail], item, (size_t)fmin(len, MAX_JSON_LEN - 1));
-    cb->data[cb->tail][(int)fmin(len, MAX_JSON_LEN - 1)] = '\0';
+    strncpy(cb->data[cb->tail], item, (size_t)MIN(len, MAX_JSON_LEN - 1));
+    cb->data[cb->tail][(int)MIN(len, MAX_JSON_LEN - 1)] = '\0';
 
     cb->tail = (cb->tail + 1) % CIRC_BUFF_CAPACITY;
     cb->size++;

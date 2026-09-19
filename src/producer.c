@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 static void on_websocket_data(const char *payload, size_t len, void *user_data) {
+
     producer_t *prod = (producer_t *)user_data;
 
     pthread_mutex_lock(prod->circ_buff_mutex);
@@ -12,8 +13,12 @@ static void on_websocket_data(const char *payload, size_t len, void *user_data) 
         pthread_cond_wait(prod->not_full, prod->circ_buff_mutex);
     }
 
-    circ_buff_push(prod->buffer, payload, len);
     
+    circ_buff_push(prod->buffer, payload, len);
+    if (prod->buffer->size > peak_buffer_size) {
+        peak_buffer_size = prod->buffer->size;
+    }
+   // printf("Current buffer occupancy: %.2f\n", circ_buff_get_occupancy_pct(prod->buffer));
     //printf("Producer pushed data to buffer: %.*s\n", (int)len, payload);
     // Wake up the consumer thread
     pthread_cond_signal(prod->not_empty);
@@ -39,14 +44,11 @@ void producer_init(producer_t *prod, circ_buff_t *buffer, pthread_mutex_t *circ_
 void* producer_thread_func(void *arg) {
     producer_t *prod = (producer_t *)arg;
 
-    ws_client_ctx_t *ws_client = ws_client_create(
-        "jetstream1.us-east.bsky.network",
-        443,
-        "/subscribe?wantedCollections=app.bsky.feed.post",
+    ws_client_ctx_t *ws_client =  ws_client_create("localhost",
+        8080,
+        "/",
         on_websocket_data,
-        prod,
-        prod->is_connected
-    );
+        prod, prod->is_connected);
 
     if (!ws_client) {
         fprintf(stderr, "Producer failed to initialize WebSocket client connection.\n");

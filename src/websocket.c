@@ -112,11 +112,6 @@ static int ws_client_callback(
      * Data received
      * ---------------------------------------------------------
      */
-/*
-     * ---------------------------------------------------------
-     * Data received
-     * ---------------------------------------------------------
-     */
     case LWS_CALLBACK_CLIENT_RECEIVE:
         if (in && len > 0 && client->callback)
         {
@@ -249,16 +244,8 @@ static int ws_client_callback(
             "Will attempt to reconnect in %d seconds.\n",
             client->reconnect_delay);
 
-        /*
-         * Exponential backoff:
-         *
-         * 1
-         * 2
-         * 4
-         * 8
-         * ...
-         */
-        client->reconnect_delay *= 2;
+
+       // client->reconnect_delay *= 2;
 
         if (client->reconnect_delay >
             WS_RECONNECT_MAX_DELAY)
@@ -344,10 +331,7 @@ static int ws_client_connect(ws_client_ctx_t *client)
     /*
      * Use TLS.
      */
-    ccinfo.ssl_connection =
-        LCCSCF_USE_SSL |
-        LCCSCF_ALLOW_SELFSIGNED |
-        LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+    ccinfo.ssl_connection = 0;
 
     lwsl_user(
         "Attempting WebSocket connection to %s:%d%s...\n",
@@ -630,7 +614,7 @@ void ws_client_destroy(ws_client_ctx_t *ctx)
      * Free our copies of the connection information.
      */
     if (ctx->rx_buffer) free(ctx->rx_buffer);
-    
+
     free(ctx->address);
     free(ctx->path);
 

@@ -9,10 +9,11 @@
 #include <stdatomic.h>
 #include <unistd.h> 
 
-#define SLEEP_SECONDS 5 // Sleep duration in seconds
+#define SLEEP_SECONDS 60*60 // Sleep duration in seconds
 #define SCHEDULE_PATH "/home/sot/bluesky-telemetry/schedule.txt" // Path to the schedule file
 
 int received_cnt = 0, commit_cnt =0, identity_cnt =0, account_cnt =0, info_cnt = 0, unknown_cnt = 0; // Counters for different message types
+volatile int peak_buffer_size = 0; // Global variable to track peak buffer size
 
  circ_buff_t buffer = {
     .data = {{0}},

@@ -113,7 +113,12 @@ void* monitor_thread_func(void *arg) {
         *(mon->account_count) = 0;
         *(mon->info_count) = 0;
         *(mon->unknown_count) = 0;
-        
+
+        printf("Current Buffer: %d/512 | Peak this second: %d/512\n", 
+        mon->buffer->size, peak_buffer_size);
+
+        // Reset peak for the next second
+        peak_buffer_size = mon->buffer->size;
         double buffer_pct = circ_buff_get_occupancy_pct(mon->buffer);
         
         pthread_mutex_unlock(mon->counters_mutex);
