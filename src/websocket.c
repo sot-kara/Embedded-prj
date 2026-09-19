@@ -327,7 +327,7 @@ static int ws_client_connect(ws_client_ctx_t *client)
         /*
          * Increase exponential backoff.
          */
-        client->reconnect_delay *= 2;
+        //client->reconnect_delay *= 2;
 
         if (client->reconnect_delay >
             WS_RECONNECT_MAX_DELAY)

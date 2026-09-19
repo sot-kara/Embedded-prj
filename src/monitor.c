@@ -30,8 +30,8 @@ static void get_cpu_times(unsigned long long *idle, unsigned long long *total) {
 }
 
 void monitor_init(monitor_t *mon, circ_buff_t *buffer, pthread_mutex_t *counters_mutex,
-                  unsigned int *commit_count, unsigned int *identity_count,
-                  unsigned int *account_count, unsigned int *info_count, volatile int *is_connected) {
+                   int *commit_count, int *identity_count,
+                  int *account_count, int *info_count, volatile int *is_connected) {
     mon->buffer = buffer;
     mon->counters_mutex = counters_mutex;
     mon->commit_count = commit_count;
@@ -98,10 +98,10 @@ void* monitor_thread_func(void *arg) {
         // 3. Lock mutex, copy data, reset counters, and calculate buffer occupancy
         pthread_mutex_lock(mon->counters_mutex);
         
-        unsigned int commits = *(mon->commit_count);
-        unsigned int identities = *(mon->identity_count);
-        unsigned int accounts = *(mon->account_count);
-        unsigned int infos = *(mon->info_count);
+        int commits = *(mon->commit_count);
+        int identities = *(mon->identity_count);
+        int accounts = *(mon->account_count);
+        int infos = *(mon->info_count);
         
         *(mon->commit_count) = 0;
         *(mon->identity_count) = 0;
