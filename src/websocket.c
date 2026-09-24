@@ -1,9 +1,9 @@
-/* src/websocket.c */
 #include "websocket.h"
 #include <libwebsockets.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <time.h>
 
 /*
@@ -11,22 +11,9 @@
  */
 #define WS_RECONNECT_INITIAL_DELAY 1
 #define WS_RECONNECT_MAX_DELAY 60
-
-/*
- * If no data (not even a fragment) has been received for this many
- * milliseconds while we believe we're connected, treat the connection
- * as dead and force a reconnect. This guards against "zombie" TCP
- * connections (e.g. caused by WiFi power-save on the Pi) where the
- * socket looks fine locally but no bytes are actually flowing, so
- * LWS never fires CLIENT_CONNECTION_ERROR / CLIENT_CLOSED on its own.
- *
- * Expressed in milliseconds (not seconds) and measured against
- * CLOCK_MONOTONIC so the threshold is precise -- a plain time_t/time()
- * based check truncates to whole seconds and can fire up to ~2s later
- * than intended depending on where within a second the last message
- * happened to land.
- */
 #define WS_IDLE_TIMEOUT_MS 5000
+
+#define WS_DEBUG_LOG_PATH "ws_debug_log.txt"
 
 /* Get the current monotonic time. */
 static void ts_now(struct timespec *ts)
@@ -84,7 +71,40 @@ struct ws_client_ctx
      * report the true end-to-end outage duration once reconnected. */
     struct timespec disconnect_ts;
     bool disconnect_ts_valid;
+
+    /* TEMPORARY: destination for [ws-debug] diagnostics. NULL if the
+     * log file couldn't be opened (diagnostics still go to stderr). */
+    FILE *debug_log;
 };
+
+/*
+    Write logs to both stderr and the optional debug log file. 
+*/
+static void dbg_log(ws_client_ctx_t *ctx, const char *fmt, ...)
+{
+    time_t now = time(NULL);
+    struct tm tm_buf;
+    char time_str[16];
+    localtime_r(&now, &tm_buf);
+    strftime(time_str, sizeof(time_str), "%H:%M:%S", &tm_buf);
+
+    va_list args;
+
+    va_start(args, fmt);
+    fprintf(stderr, "[ws-debug %ld %s] ", (long)now, time_str);
+    vfprintf(stderr, fmt, args);
+    fflush(stderr);
+    va_end(args);
+
+    if (ctx && ctx->debug_log)
+    {
+        va_start(args, fmt);
+        fprintf(ctx->debug_log, "[ws-debug %ld %s] ", (long)now, time_str);
+        vfprintf(ctx->debug_log, fmt, args);
+        fflush(ctx->debug_log);
+        va_end(args);
+    }
+}
 
 static int ws_client_connect(ws_client_ctx_t *client);
 
@@ -146,12 +166,11 @@ static int ws_client_callback(
         {
             struct timespec now;
             ts_now(&now);
-            fprintf(stderr,
-                    "[ws-debug] RECONNECTED: %lld ms since connection was "
+            dbg_log(client,
+                    "RECONNECTED: %lld ms since connection was "
                     "declared dead (this includes detection + TCP/TLS/WS "
                     "handshake time)\n",
                     ts_diff_ms(&now, &client->disconnect_ts));
-            fflush(stderr);
             client->disconnect_ts_valid = false;
         }
 
@@ -159,13 +178,7 @@ static int ws_client_callback(
             "WebSocket connection established successfully.\n");
 
         break;
-
-    /*
-     * ---------------------------------------------------------
-     * Data received
-     * ---------------------------------------------------------
-     */
-/*
+     /*       
      * ---------------------------------------------------------
      * Data received
      * ---------------------------------------------------------
@@ -305,16 +318,6 @@ static int ws_client_callback(
             "Will attempt to reconnect in %d seconds.\n",
             client->reconnect_delay);
 
-        /*
-         * Exponential backoff:
-         *
-         * 1
-         * 2
-         * 4
-         * 8
-         * ...
-         */
-        client->reconnect_delay *= 2;
 
         if (client->reconnect_delay >
             WS_RECONNECT_MAX_DELAY)
@@ -431,10 +434,6 @@ static int ws_client_connect(ws_client_ctx_t *client)
             "Will retry in %d seconds.\n",
             client->reconnect_delay);
 
-        /*
-         * Increase exponential backoff.
-         */
-        //client->reconnect_delay *= 2;
 
         if (client->reconnect_delay >
             WS_RECONNECT_MAX_DELAY)
@@ -482,6 +481,23 @@ ws_client_ctx_t *ws_client_create(
 
     memset(client, 0, sizeof(ws_client_ctx_t));
 
+    // Open the debug log file in append mode
+    client->debug_log = fopen(WS_DEBUG_LOG_PATH, "a");
+    if (!client->debug_log)
+    {
+        fprintf(stderr,
+                "[ws-debug] WARNING: could not open %s for logging "
+                "(diagnostics will still print to stderr)\n",
+                WS_DEBUG_LOG_PATH);
+    }
+    else
+    {
+        time_t now = time(NULL);
+        fprintf(client->debug_log,
+                "\n==== session start %s ====\n", ctime(&now));
+        fflush(client->debug_log);
+    }
+
     /*
      * Store callback information.
      */
@@ -501,6 +517,7 @@ ws_client_ctx_t *ws_client_create(
 
     if (!client->address)
     {
+        if (client->debug_log) fclose(client->debug_log);
         free(client);
         return NULL;
     }
@@ -510,6 +527,7 @@ ws_client_ctx_t *ws_client_create(
     if (!client->path)
     {
         free(client->address);
+        if (client->debug_log) fclose(client->debug_log);
         free(client);
         return NULL;
     }
@@ -586,31 +604,12 @@ ws_client_ctx_t *ws_client_create(
 
         free(client->path);
         free(client->address);
+        if (client->debug_log) fclose(client->debug_log);
         free(client);
 
         return NULL;
     }
 
-    /*
-     * ---------------------------------------------------------
-     * Initial connection
-     * ---------------------------------------------------------
-     *
-     * A failure here is NOT fatal. ws_client_connect() already
-     * scheduled a retry via next_reconnect_time on failure, and
-     * ws_client_run()'s normal reconnect loop will pick it up just
-     * like any later disconnect.
-     *
-     * This matters in practice: if the target server isn't up yet
-     * (e.g. this client is started before its server, or connecting
-     * to a nearby host/loopback where a refused connection can come
-     * back synchronously instead of via the async
-     * CLIENT_CONNECTION_ERROR callback), tearing the context down
-     * and returning NULL here would make the caller's thread give up
-     * permanently after a single failed attempt, with no retry ever
-     * happening -- exactly the "started client before server, never
-     * connects" symptom.
-     */
     if (ws_client_connect(client) != 0)
     {
         lwsl_user(
@@ -633,7 +632,7 @@ void ws_client_run(
         return;
     }
 
-    time_t last_debug_print = 0;
+    // time_t last_debug_print = 0;
 
     while (*running)
     {
@@ -659,22 +658,20 @@ void ws_client_run(
          * it's in and confirm the idle timer is actually advancing.
          * Safe to delete once the watchdog is confirmed working.
          */
-        {
-            time_t now_dbg = time(NULL);
-            if (now_dbg != last_debug_print)
-            {
-                struct timespec now_ts;
-                ts_now(&now_ts);
-                fprintf(stderr,
-                        "[ws-debug] t=%ld connected=%d wsi=%s idle=%lldms\n",
-                        (long)now_dbg,
-                        ctx->connected,
-                        ctx->wsi ? "yes" : "no",
-                        ctx->connected ? ts_diff_ms(&now_ts, &ctx->last_rx_ts) : -1LL);
-                fflush(stderr);
-                last_debug_print = now_dbg;
-            }
-        }
+        // {
+        //     time_t now_dbg = time(NULL);
+        //     if (now_dbg != last_debug_print)
+        //     {
+        //         struct timespec now_ts;
+        //         ts_now(&now_ts);
+        //         dbg_log(ctx,
+        //                 "connected=%d wsi=%s idle=%lldms\n",
+        //                 ctx->connected,
+        //                 ctx->wsi ? "yes" : "no",
+        //                 ctx->connected ? ts_diff_ms(&now_ts, &ctx->last_rx_ts) : -1LL);
+        //         last_debug_print = now_dbg;
+        //     }
+        // }
 
         /*
          * -----------------------------------------------------
@@ -695,12 +692,11 @@ void ws_client_run(
             if (ctx->connected && ctx->wsi &&
                 ts_diff_ms(&now_ts, &ctx->last_rx_ts) > WS_IDLE_TIMEOUT_MS)
             {
-                fprintf(stderr,
-                        "[ws-debug] *** WATCHDOG TRIGGERED *** no data in "
+                dbg_log(ctx,
+                        "*** WATCHDOG TRIGGERED *** no data in "
                         "%lldms (threshold %dms), forcing reconnect\n",
                         ts_diff_ms(&now_ts, &ctx->last_rx_ts),
                         WS_IDLE_TIMEOUT_MS);
-                fflush(stderr);
 
                 /* Mark when we declared the connection dead, so once
                  * reconnected we can report the true end-to-end gap
@@ -752,18 +748,13 @@ void ws_client_run(
 
             if (now >= ctx->next_reconnect_time)
             {
-                fprintf(stderr,
-                        "[ws-debug] attempting reconnect at t=%ld...\n",
-                        (long)now);
-                fflush(stderr);
+                dbg_log(ctx, "attempting reconnect...\n");
 
                 int rc = ws_client_connect(ctx);
 
-                fprintf(stderr,
-                        "[ws-debug] ws_client_connect() returned %d, "
-                        "wsi is now %s\n",
+                dbg_log(ctx,
+                        "ws_client_connect() returned %d, wsi is now %s\n",
                         rc, ctx->wsi ? "non-NULL" : "NULL");
-                fflush(stderr);
 
                 if (rc == 0)
                 {
@@ -804,7 +795,12 @@ void ws_client_destroy(ws_client_ctx_t *ctx)
      * Free our copies of the connection information.
      */
     if (ctx->rx_buffer) free(ctx->rx_buffer);
-    
+
+    if (ctx->debug_log) {
+        fprintf(ctx->debug_log, "==== session end ====\n");
+        fclose(ctx->debug_log);
+    }
+
     free(ctx->address);
     free(ctx->path);
 

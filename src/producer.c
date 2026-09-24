@@ -44,11 +44,15 @@ void producer_init(producer_t *prod, circ_buff_t *buffer, pthread_mutex_t *circ_
 void* producer_thread_func(void *arg) {
     producer_t *prod = (producer_t *)arg;
 
-    ws_client_ctx_t *ws_client =  ws_client_create("localhost",
-        8443,
-        "/",
+
+    ws_client_ctx_t *ws_client = ws_client_create(
+        "jetstream1.us-east.bsky.network",
+        443,
+        "/subscribe?wantedCollections=app.bsky.feed.post",
         on_websocket_data,
-        prod, prod->is_connected);
+        prod,
+        prod->is_connected
+    );
 
     if (!ws_client) {
         fprintf(stderr, "Producer failed to initialize WebSocket client connection.\n");
