@@ -1,9 +1,9 @@
-/* src/websocket.c */
 #include "websocket.h"
 #include <libwebsockets.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include <time.h>
 
 /*
@@ -11,6 +11,20 @@
  */
 #define WS_RECONNECT_INITIAL_DELAY 1
 #define WS_RECONNECT_MAX_DELAY 60
+#define WS_IDLE_TIMEOUT_MS 5000
+
+/* Get the current monotonic time. */
+static void ts_now(struct timespec *ts)
+{
+    clock_gettime(CLOCK_MONOTONIC, ts);
+}
+
+/* Milliseconds elapsed from `earlier` to `later`. */
+static long long ts_diff_ms(const struct timespec *later, const struct timespec *earlier)
+{
+    return (long long)(later->tv_sec - earlier->tv_sec) * 1000LL +
+           (later->tv_nsec - earlier->tv_nsec) / 1000000LL;
+}
 
 /*
  * Client context
@@ -47,6 +61,9 @@ struct ws_client_ctx
     // Buffer for handling fragmented data
     char *rx_buffer;
     size_t rx_buffer_len;
+
+    /* Monotonic time we last received any data (used for idle watchdog) */
+    struct timespec last_rx_ts;
 };
 
 static int ws_client_connect(ws_client_ctx_t *client);
@@ -102,17 +119,14 @@ static int ws_client_callback(
 
         client->next_reconnect_time = 0;
 
+        /* Reset the idle watchdog clock for the new connection */
+        ts_now(&client->last_rx_ts);
+
         lwsl_user(
             "WebSocket connection established successfully.\n");
 
         break;
-
-    /*
-     * ---------------------------------------------------------
-     * Data received
-     * ---------------------------------------------------------
-     */
-/*
+     /*       
      * ---------------------------------------------------------
      * Data received
      * ---------------------------------------------------------
@@ -120,6 +134,9 @@ static int ws_client_callback(
     case LWS_CALLBACK_CLIENT_RECEIVE:
         if (in && len > 0 && client->callback)
         {
+            /* Any bytes at all count as proof the connection is alive */
+            ts_now(&client->last_rx_ts);
+
             /* 1. Expand the buffer to fit the new fragment */
             char *new_buf = realloc(client->rx_buffer, client->rx_buffer_len + len + 1);
             if (!new_buf)
@@ -249,16 +266,6 @@ static int ws_client_callback(
             "Will attempt to reconnect in %d seconds.\n",
             client->reconnect_delay);
 
-        /*
-         * Exponential backoff:
-         *
-         * 1
-         * 2
-         * 4
-         * 8
-         * ...
-         */
-        client->reconnect_delay *= 2;
 
         if (client->reconnect_delay >
             WS_RECONNECT_MAX_DELAY)
@@ -375,10 +382,6 @@ static int ws_client_connect(ws_client_ctx_t *client)
             "Will retry in %d seconds.\n",
             client->reconnect_delay);
 
-        /*
-         * Increase exponential backoff.
-         */
-        //client->reconnect_delay *= 2;
 
         if (client->reconnect_delay >
             WS_RECONNECT_MAX_DELAY)
@@ -451,7 +454,7 @@ ws_client_ctx_t *ws_client_create(
 
     client->path = strdup(path);
 
-    if (!client->path)
+        if (!client->path)
     {
         free(client->address);
         free(client);
@@ -495,6 +498,15 @@ ws_client_ctx_t *ws_client_create(
      * Protocols used by the client.
      */
     info.protocols = protocols;
+
+    /*
+     * TCP keepalive so a socket that has actually died at the network
+     * level (as opposed to being merely idle) is detected and torn
+     * down by the OS/lws instead of sitting silent indefinitely.
+     */
+    info.ka_time = 10;
+    info.ka_interval = 5;
+    info.ka_probes = 3;
     
 
     /*
@@ -526,28 +538,11 @@ ws_client_ctx_t *ws_client_create(
         return NULL;
     }
 
-    /*
-     * ---------------------------------------------------------
-     * Initial connection
-     * ---------------------------------------------------------
-     */
     if (ws_client_connect(client) != 0)
     {
-
-        /*
-         * We could keep the context alive and allow
-         * ws_client_run() to retry, but since create()
-         * traditionally indicates successful initialization,
-         * return NULL here if the initial connection could
-         * not even be initiated.
-         */
-        lws_context_destroy(client->context);
-
-        free(client->path);
-        free(client->address);
-        free(client);
-
-        return NULL;
+        lwsl_user(
+            "Initial connection attempt failed; will keep retrying "
+            "via the normal reconnect loop.\n");
     }
 
     return client;
@@ -565,6 +560,8 @@ void ws_client_run(
         return;
     }
 
+    // time_t last_debug_print = 0;
+
     while (*running)
     {
 
@@ -574,6 +571,46 @@ void ws_client_run(
          * 50 ms timeout
          */
         lws_service(ctx->context, 50);
+
+        /*
+         * -----------------------------------------------------
+         * Idle / zombie-connection watchdog
+         * -----------------------------------------------------
+         *
+         */
+        {
+            struct timespec now_ts;
+            ts_now(&now_ts);
+            if (ctx->connected && ctx->wsi &&
+                ts_diff_ms(&now_ts, &ctx->last_rx_ts) > WS_IDLE_TIMEOUT_MS)
+            {
+                lwsl_user(
+                    "No data received in %lld ms, assuming connection "
+                    "is dead. Forcing reconnect.\n",
+                    ts_diff_ms(&now_ts, &ctx->last_rx_ts));
+
+                /* Ask lws to close the stale wsi as soon as possible */
+                lws_set_timeout(ctx->wsi, PENDING_TIMEOUT_CLOSE_ACK, LWS_TO_KILL_ASYNC);
+
+                ctx->connected = false;
+                ctx->wsi = NULL;
+
+                if (ctx->is_connected) {
+                    *(ctx->is_connected) = 0;
+                }
+
+                /* Free any partially assembled message */
+                if (ctx->rx_buffer) {
+                    free(ctx->rx_buffer);
+                    ctx->rx_buffer = NULL;
+                    ctx->rx_buffer_len = 0;
+                }
+
+                /* Try again immediately; normal backoff still applies
+                 * to subsequent failures via ws_client_connect(). */
+                ctx->next_reconnect_time = time(NULL);
+            }
+        }
 
         /*
          * -----------------------------------------------------
@@ -590,8 +627,15 @@ void ws_client_run(
 
             if (now >= ctx->next_reconnect_time)
             {
+                dbg_log(ctx, "attempting reconnect...\n");
 
-                if (ws_client_connect(ctx) == 0)
+                int rc = ws_client_connect(ctx);
+
+                dbg_log(ctx,
+                        "ws_client_connect() returned %d, wsi is now %s\n",
+                        rc, ctx->wsi ? "non-NULL" : "NULL");
+
+                if (rc == 0)
                 {
 
                     /*
@@ -630,7 +674,6 @@ void ws_client_destroy(ws_client_ctx_t *ctx)
      * Free our copies of the connection information.
      */
     if (ctx->rx_buffer) free(ctx->rx_buffer);
-    
     free(ctx->address);
     free(ctx->path);
 
