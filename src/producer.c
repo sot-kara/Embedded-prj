@@ -45,7 +45,7 @@ void* producer_thread_func(void *arg) {
     producer_t *prod = (producer_t *)arg;
 
     ws_client_ctx_t *ws_client =  ws_client_create("localhost",
-        8080,
+        8443,
         "/",
         on_websocket_data,
         prod, prod->is_connected);

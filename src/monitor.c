@@ -114,8 +114,8 @@ void* monitor_thread_func(void *arg) {
         *(mon->info_count) = 0;
         *(mon->unknown_count) = 0;
 
-        printf("Current Buffer: %d/512 | Peak this second: %d/512\n", 
-        mon->buffer->size, peak_buffer_size);
+      //  printf("Current Buffer: %d/512 | Peak this second: %d/512\n", 
+      //  mon->buffer->size, peak_buffer_size);
 
         // Reset peak for the next second
         peak_buffer_size = mon->buffer->size;
