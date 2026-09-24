@@ -627,13 +627,8 @@ void ws_client_run(
 
             if (now >= ctx->next_reconnect_time)
             {
-                dbg_log(ctx, "attempting reconnect...\n");
 
                 int rc = ws_client_connect(ctx);
-
-                dbg_log(ctx,
-                        "ws_client_connect() returned %d, wsi is now %s\n",
-                        rc, ctx->wsi ? "non-NULL" : "NULL");
 
                 if (rc == 0)
                 {
