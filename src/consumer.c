@@ -38,7 +38,6 @@ void *consumer_thread_func(void *arg) {
         pthread_mutex_unlock(cons->circ_buff_mutex);
         // --- PROCESS DATA ---
         message_kind_t kind = parse_msg_kind(data);
-//        printf("Consumer received data from buffer: %.*s\n", (int)strlen(data), data);
         // lock the counter mutex before updating counters
         pthread_mutex_lock(cons->counter_mutex);
         switch (kind)
